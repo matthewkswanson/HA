@@ -1,0 +1,296 @@
+############################################################
+# Package: CS5202 Fan + Light via Broadlink RM4 Pro
+# - Requires Broadlink remote entity (remote.rm4_pro)
+# - Requires learned commands stored under device: cs5202_fan
+#   commands: fan_power, fan_low, fan_medium, fan_high, light_toggle
+############################################################
+
+input_boolean:
+  cs5202_fan_state:
+    name: CS5202 Fan State
+    icon: mdi:fan
+
+  cs5202_light_state:
+    name: CS5202 Light State
+    icon: mdi:lightbulb
+
+input_select:
+  cs5202_fan_speed:
+    name: CS5202 Fan Speed
+    options:
+      - "off"
+      - "low"
+      - "medium"
+      - "high"
+    icon: mdi:fan-speed-1
+
+script:
+  # --- Fan commands (learned) ---
+  cs5202_fan_power:
+    alias: CS5202 Fan Power (Toggle)
+    mode: queued
+    sequence:
+      - service: remote.send_command
+        target:
+          entity_id: remote.rm4_pro
+        data:
+          device: cs5202_fan
+          command: fan_power
+
+  cs5202_fan_low:
+    alias: CS5202 Fan Low
+    mode: queued
+    sequence:
+      - service: remote.send_command
+        target:
+          entity_id: remote.rm4_pro
+        data:
+          device: cs5202_fan
+          command: fan_low
+
+  cs5202_fan_medium:
+    alias: CS5202 Fan Medium
+    mode: queued
+    sequence:
+      - service: remote.send_command
+        target:
+          entity_id: remote.rm4_pro
+        data:
+          device: cs5202_fan
+          command: fan_medium
+
+  cs5202_fan_high:
+    alias: CS5202 Fan High
+    mode: queued
+    sequence:
+      - service: remote.send_command
+        target:
+          entity_id: remote.rm4_pro
+        data:
+          device: cs5202_fan
+          command: fan_high
+
+  # --- Light command (learned) ---
+  cs5202_light_toggle:
+    alias: CS5202 Light Toggle
+    mode: queued
+    sequence:
+      - service: remote.send_command
+        target:
+          entity_id: remote.rm4_pro
+        data:
+          device: cs5202_fan
+          command: light_toggle
+
+fan:
+  - platform: template
+    fans:
+      cs5202_fan:
+        friendly_name: "CS5202 Fan"
+        value_template: "{{ is_state('input_boolean.cs5202_fan_state', 'on') }}"
+        percentage_template: >
+          {% set sp = states('input_select.cs5202_fan_speed') %}
+          {% if sp == 'low' %} 33
+          {% elif sp == 'medium' %} 66
+          {% elif sp == 'high' %} 100
+          {% else %} 0
+          {% endif %}
+        speed_count: 3
+
+        turn_on:
+          # If we think it’s off, toggle power on.
+          # If we have a last-known speed, also re-apply it.
+          sequence:
+            - if:
+                - condition: state
+                  entity_id: input_boolean.cs5202_fan_state
+                  state: "off"
+              then:
+                - service: script.cs5202_fan_power
+                - delay: "00:00:01"
+            - choose:
+                - conditions:
+                    - condition: state
+                      entity_id: input_select.cs5202_fan_speed
+                      state: "high"
+                  sequence:
+                    - service: script.cs5202_fan_high
+                - conditions:
+                    - condition: state
+                      entity_id: input_select.cs5202_fan_speed
+                      state: "medium"
+                  sequence:
+                    - service: script.cs5202_fan_medium
+                - conditions:
+                    - condition: state
+                      entity_id: input_select.cs5202_fan_speed
+                      state: "low"
+                  sequence:
+                    - service: script.cs5202_fan_low
+              default:
+                # Default to low if no known speed
+                - service: script.cs5202_fan_low
+
+        turn_off:
+          # Toggle power off if we think it’s on
+          sequence:
+            - if:
+                - condition: state
+                  entity_id: input_boolean.cs5202_fan_state
+                  state: "on"
+              then:
+                - service: script.cs5202_fan_power
+
+        set_percentage:
+          # Map HA percentage to discrete speeds
+          sequence:
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: "{{ percentage | int(0) <= 0 }}"
+                  sequence:
+                    - service: fan.turn_off
+                      target:
+                        entity_id: fan.cs5202_fan
+
+                - conditions:
+                    - condition: template
+                      value_template: "{{ percentage | int(0) <= 33 }}"
+                  sequence:
+                    - service: script.cs5202_fan_low
+
+                - conditions:
+                    - condition: template
+                      value_template: "{{ percentage | int(0) <= 66 }}"
+                  sequence:
+                    - service: script.cs5202_fan_medium
+
+              default:
+                - service: script.cs5202_fan_high
+
+light:
+  - platform: template
+    lights:
+      cs5202_fan_light:
+        friendly_name: "CS5202 Fan Light"
+        value_template: "{{ is_state('input_boolean.cs5202_light_state', 'on') }}"
+        turn_on:
+          service: script.cs5202_light_toggle
+        turn_off:
+          service: script.cs5202_light_toggle
+
+automation:
+  # Fan power toggle updates tracked state.
+  - alias: CS5202 - Track Fan Power Toggle
+    mode: queued
+    trigger:
+      - platform: event
+        event_type: call_service
+        event_data:
+          domain: script
+          service: turn_on
+    condition:
+      - condition: template
+        value_template: >
+          {{ trigger.event.data.service_data.entity_id in ['script.cs5202_fan_power'] }}
+    action:
+      - service: input_boolean.toggle
+        target:
+          entity_id: input_boolean.cs5202_fan_state
+      # If we just turned it off, mark speed off
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.cs5202_fan_state
+                state: "off"
+            sequence:
+              - service: input_select.select_option
+                target:
+                  entity_id: input_select.cs5202_fan_speed
+                data:
+                  option: "off"
+
+  # Fan speed commands: ensure fan_state on, set speed helper
+  - alias: CS5202 - Track Fan Speed Low
+    mode: queued
+    trigger:
+      - platform: event
+        event_type: call_service
+        event_data:
+          domain: script
+          service: turn_on
+    condition:
+      - condition: template
+        value_template: >
+          {{ trigger.event.data.service_data.entity_id in ['script.cs5202_fan_low'] }}
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.cs5202_fan_state
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.cs5202_fan_speed
+        data:
+          option: "low"
+
+  - alias: CS5202 - Track Fan Speed Medium
+    mode: queued
+    trigger:
+      - platform: event
+        event_type: call_service
+        event_data:
+          domain: script
+          service: turn_on
+    condition:
+      - condition: template
+        value_template: >
+          {{ trigger.event.data.service_data.entity_id in ['script.cs5202_fan_medium'] }}
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.cs5202_fan_state
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.cs5202_fan_speed
+        data:
+          option: "medium"
+
+  - alias: CS5202 - Track Fan Speed High
+    mode: queued
+    trigger:
+      - platform: event
+        event_type: call_service
+        event_data:
+          domain: script
+          service: turn_on
+    condition:
+      - condition: template
+        value_template: >
+          {{ trigger.event.data.service_data.entity_id in ['script.cs5202_fan_high'] }}
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.cs5202_fan_state
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.cs5202_fan_speed
+        data:
+          option: "high"
+
+  # Light toggle tracking
+  - alias: CS5202 - Track Light Toggle
+    mode: queued
+    trigger:
+      - platform: event
+        event_type: call_service
+        event_data:
+          domain: script
+          service: turn_on
+    condition:
+      - condition: template
+        value_template: >
+          {{ trigger.event.data.service_data.entity_id in ['script.cs5202_light_toggle'] }}
+    action:
+      - service: input_boolean.toggle
+        target:
+          entity_id: input_boolean.cs5202_light_state
