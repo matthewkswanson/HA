@@ -1,5 +1,5 @@
 blueprint:
-  name: ZMR4 (ZHA) - Step Dimmer Plug Up/Down with Helper
+  name: Step Dimmer Plug Up/Down (ZHA with ZMR4)
   description: >
     Button 1 short press increments brightness through allowed steps.
     Button 2 short press decrements brightness; 0 turns the plug off.
