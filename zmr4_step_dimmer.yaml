@@ -21,7 +21,7 @@ blueprint:
 
     brightness_helper:
       name: Brightness helper (input_select)
-      description: Must have options: 0, 5, 15, 25, 50, 100 (as strings).
+      description: Must have options 0, 5, 15, 25, 50, 100 (as strings).
       selector:
         entity:
           domain: input_select
