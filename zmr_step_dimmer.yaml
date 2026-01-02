@@ -1,0 +1,124 @@
+blueprint:
+  name: ZMR4 (ZHA) - Step Dimmer Plug Up/Down with Helper
+  description: >
+    Button 1 short press increments brightness through allowed steps.
+    Button 2 short press decrements brightness; 0 turns the plug off.
+    Updates an input_select helper to match.
+  domain: automation
+
+  input:
+    zmr4_device:
+      name: ZMR4 remote (device)
+      selector:
+        device:
+          integration: zha
+
+    dimmer_light:
+      name: Dimmer plug (light entity)
+      selector:
+        entity:
+          domain: light
+
+    brightness_helper:
+      name: Brightness helper (input_select)
+      description: Must have options: 0, 5, 15, 25, 50, 100 (as strings).
+      selector:
+        entity:
+          domain: input_select
+
+mode: single
+
+trigger:
+  # Button 1 short press (increment)
+  - platform: event
+    id: inc
+    event_type: zha_event
+    event_data:
+      device_id: !input zmr4_device
+      endpoint_id: 1
+      command: remote_button_short_press
+
+  # Button 2 short press (decrement)
+  - platform: event
+    id: dec
+    event_type: zha_event
+    event_data:
+      device_id: !input zmr4_device
+      endpoint_id: 2
+      command: remote_button_short_press
+
+variables:
+  steps: [0, 5, 15, 25, 50, 100]
+  helper_entity: !input brightness_helper
+  light_entity: !input dimmer_light
+
+  current: "{{ states(helper_entity) | int(0) }}"
+  current_idx: >
+    {% set s = steps %}
+    {% if current in s %}
+      {{ s.index(current) }}
+    {% else %}
+      0
+    {% endif %}
+
+  next_value: >
+    {% set s = steps %}
+    {% set i = current_idx | int(0) %}
+    {{ s[ [i + 1, (s | length) - 1] | min ] }}
+
+  prev_value: >
+    {% set s = steps %}
+    {% set i = current_idx | int(0) %}
+    {{ s[ [i - 1, 0] | max ] }}
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: inc
+        sequence:
+          - service: input_select.select_option
+            target:
+              entity_id: "{{ helper_entity }}"
+            data:
+              option: "{{ next_value | int | string }}"
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (next_value | int) == 0 }}"
+                sequence:
+                  - service: light.turn_off
+                    target:
+                      entity_id: "{{ light_entity }}"
+            default:
+              - service: light.turn_on
+                target:
+                  entity_id: "{{ light_entity }}"
+                data:
+                  brightness_pct: "{{ next_value | int }}"
+
+      - conditions:
+          - condition: trigger
+            id: dec
+        sequence:
+          - service: input_select.select_option
+            target:
+              entity_id: "{{ helper_entity }}"
+            data:
+              option: "{{ prev_value | int | string }}"
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (prev_value | int) == 0 }}"
+                sequence:
+                  - service: light.turn_off
+                    target:
+                      entity_id: "{{ light_entity }}"
+            default:
+              - service: light.turn_on
+                target:
+                  entity_id: "{{ light_entity }}"
+                data:
+                  brightness_pct: "{{ prev_value | int }}"
