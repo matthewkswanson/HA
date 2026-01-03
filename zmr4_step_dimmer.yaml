@@ -21,7 +21,7 @@ blueprint:
 
     brightness_helper:
       name: Brightness helper (input_select)
-      description: Must have options 0, 5, 15, 25, 50, 100 (as strings).
+      description: Must have options 0, 5, 15, 25, 35, 50, 100 (as strings).
       selector:
         entity:
           domain: input_select
@@ -48,7 +48,9 @@ trigger:
       command: remote_button_short_press
 
 variables:
-  steps: [0, 5, 15, 25, 50, 100]
+  # UPDATED STEP LIST (35% added)
+  steps: [0, 5, 15, 25, 35, 50, 100]
+
   helper_entity: !input brightness_helper
   light_entity: !input dimmer_light
 
